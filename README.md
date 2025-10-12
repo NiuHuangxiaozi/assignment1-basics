@@ -48,3 +48,10 @@ gunzip owt_valid.txt.gz
 cd ..
 ```
 
+
+
+
+
+
+# 完成情况
+1、class_content.ipynb 是在学习cs336 lesson 2 时候的草稿，可以学习pytorch编码的高效技巧
