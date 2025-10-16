@@ -11,8 +11,7 @@ from torch import Tensor
 
 
 
-# invoke my implementations here
-from cs336_basics.bpe import train_bpe
+
 
 
 def run_linear(
@@ -567,6 +566,10 @@ def get_tokenizer(
     raise NotImplementedError
 
 
+# invoke my implementations here
+from cs336_basics.bpe import train_bpe
+from cs336_basics.parallel_bpe import train_bpe as train_bpe_parallel
+from cs336_basics.optimize_bpe import train_bpe as train_optim_bpe
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -594,6 +597,6 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    return train_bpe(input_path,vocab_size,special_tokens, **kwargs)
+    return train_optim_bpe(input_path,vocab_size,special_tokens, **kwargs)
     
     
