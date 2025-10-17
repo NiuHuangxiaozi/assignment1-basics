@@ -1,27 +1,30 @@
-from ast import parse
+
 import regex
 import logging  
-from typing import Dict, Tuple, List
+from tqdm import tqdm
 import os
 import sys
 import copy 
+from typing import Dict, Tuple, List
+import multiprocessing as mp
+# mp.set_start_method('spawn', force=True)
 root = os.path.dirname(os.path.dirname(__file__))
 if root not in sys.path:
     sys.path.insert(0, root)
 
-import multiprocessing as mp
-mp.set_start_method('spawn', force=True)
-from functools import partial
-from tqdm import tqdm
-from tests.common import gpt2_bytes_to_unicode
-from cs336_basics.invertindex import InvertIndex
-from cs336_basics.pretokenization_example import find_chunk_boundaries
 
+from cs336_basics.bpe.invertindex import InvertIndex
+from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
+
+
+
+# constants
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 NUM_PROCESSES = 8
-WORK_DIR = "/home/niu/code/cs336/assignment1-basics/cs336_basics"
 
+
+# logger
 logging.basicConfig(
     filename='bpe_debug.log',
     level=logging.INFO,
@@ -30,6 +33,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 # logging.disable(logging.INFO)
 
+
+
+
+
+# =============================================================================================================================
 def split_on_special_tokens(text: str, special_tokens: List[str]) -> List[str]:
     """
     把 text 按照 special_tokens 拆分，返回不包含 special token 的各个子段。
@@ -115,7 +123,6 @@ def train_bpe(
     '''
         训练一个带有预分词的BPE模型
     '''
-    os.makedirs(WORK_DIR, exist_ok=True)
     
     # 初始化
     # build initial vocabulary

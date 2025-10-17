@@ -567,9 +567,8 @@ def get_tokenizer(
 
 
 # invoke my implementations here
-from cs336_basics.bpe import train_bpe
-from cs336_basics.parallel_bpe import train_bpe as train_bpe_parallel
-from cs336_basics.optimize_bpe import train_bpe as train_optim_bpe
+from cs336_basics.bpe.bpe import train_bpe
+from cs336_basics.bpe.optimize_bpe import train_bpe as train_optim_bpe
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
