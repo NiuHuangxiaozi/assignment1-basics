@@ -1,15 +1,17 @@
+from ast import parse
 import regex
 import logging  
-from typing import Dict, Tuple, List,Set
+from typing import Dict, Tuple, List
 import os
 import sys
-from collections import defaultdict
-from pprint import pprint
 import copy 
 root = os.path.dirname(os.path.dirname(__file__))
 if root not in sys.path:
     sys.path.insert(0, root)
 
+import multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+from functools import partial
 from tqdm import tqdm
 from tests.common import gpt2_bytes_to_unicode
 from cs336_basics.invertindex import InvertIndex
@@ -18,6 +20,7 @@ from cs336_basics.pretokenization_example import find_chunk_boundaries
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 NUM_PROCESSES = 8
+WORK_DIR = "/home/niu/code/cs336/assignment1-basics/cs336_basics"
 
 logging.basicConfig(
     filename='bpe_debug.log',
@@ -72,6 +75,37 @@ def get_most_appear_pair(d: Dict[Tuple[bytes, bytes], int]):
     return (best_pair, max_freq)
 
 
+def pretokenize_mp(input_path, special_tokens, PAT, num_processes=None):
+    
+    if num_processes is None:
+        num_processes = mp.cpu_count()
+        logger.info(f"Using all {num_processes} CPU cores for pre-tokenization")
+    else:
+        logger.info(f"Using {num_processes} CPU cores for pre-tokenization")
+    
+    
+    
+    logger.info(f"start counting subwords...")
+    subword2count : dict[tuple[bytes], int] = {}
+    with open(input_path, "rb") as f:
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+        
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            
+            splits = split_on_special_tokens(text=chunk, special_tokens=special_tokens)
+            for text in splits:
+                for token in regex.finditer(PAT, text):
+                    token_str = token.group(0)
+                    token_bytes = token_str.encode("utf-8")
+                    token_subwords = tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
+                    subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
+                
+    logger.info(f"end counting subwords")
+    return subword2count
+
+
 def train_bpe(
     input_path: str,
     vocab_size: int,
@@ -81,6 +115,7 @@ def train_bpe(
     '''
         训练一个带有预分词的BPE模型
     '''
+    os.makedirs(WORK_DIR, exist_ok=True)
     
     # 初始化
     # build initial vocabulary
@@ -94,27 +129,10 @@ def train_bpe(
     
     merges: List[tuple[bytes, bytes]] = []
             
-    subword2count : dict[tuple[bytes], int] = {}
-    
     logger.info(f"start pre-tokenization...")
-    ## Usage
-    with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, NUM_PROCESSES, b"<|endoftext|>")
-
-        # The following is a serial implementation, but you can parallelize this
-        # by sending each start/end pair to a set of processes.
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
-            splited_text = split_on_special_tokens(text=chunk, special_tokens=special_tokens)
-            for text in splited_text:
-                token_iter = regex.finditer(PAT, text)
-                for token in token_iter:
-                    token_str = token.group(0)
-                    token_bytes = token_str.encode("utf-8")
-                    token_subwords =  tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
-                    subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
+    subword2count : dict[tuple[bytes], int] = pretokenize_mp(input_path=input_path, special_tokens=special_tokens, PAT=PAT, num_processes=NUM_PROCESSES)
     logger.info(f"end pre-tokenization")
+
     
     # read input text
     # with open(input_path, "r") as f:
@@ -285,7 +303,7 @@ def train_bpe(
                 else:
                     m += 1
         if len(vocab) % 100 == 0:
-            logger.info(f"vocab size {len(vocab)}/{500}, vocab size = {len(vocab)} merge size {len(merges)}")
+            logger.info(f"vocab size {len(vocab)}/{vocab_size}, vocab size = {len(vocab)} merge size {len(merges)}")
         pbar.update(1)
     
     pbar.close()
