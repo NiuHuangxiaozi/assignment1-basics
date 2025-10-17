@@ -9,12 +9,15 @@ import copy
 root = os.path.dirname(os.path.dirname(__file__))
 if root not in sys.path:
     sys.path.insert(0, root)
-    
+
+from tqdm import tqdm
 from tests.common import gpt2_bytes_to_unicode
 from cs336_basics.invertindex import InvertIndex
+from cs336_basics.pretokenization_example import find_chunk_boundaries
 
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+NUM_PROCESSES = 8
 
 logging.basicConfig(
     filename='bpe_debug.log',
@@ -22,7 +25,7 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-logging.disable(logging.INFO)
+# logging.disable(logging.INFO)
 
 def split_on_special_tokens(text: str, special_tokens: List[str]) -> List[str]:
     """
@@ -91,32 +94,46 @@ def train_bpe(
     
     merges: List[tuple[bytes, bytes]] = []
             
+    subword2count : dict[tuple[bytes], int] = {}
+    
+    logger.info(f"start pre-tokenization...")
+    ## Usage
+    with open(input_path, "rb") as f:
+        boundaries = find_chunk_boundaries(f, NUM_PROCESSES, b"<|endoftext|>")
+
+        # The following is a serial implementation, but you can parallelize this
+        # by sending each start/end pair to a set of processes.
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            splited_text = split_on_special_tokens(text=chunk, special_tokens=special_tokens)
+            for text in splited_text:
+                token_iter = regex.finditer(PAT, text)
+                for token in token_iter:
+                    token_str = token.group(0)
+                    token_bytes = token_str.encode("utf-8")
+                    token_subwords =  tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
+                    subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
+    logger.info(f"end pre-tokenization")
     
     # read input text
-    with open(input_path, "r") as f:
-        corpus = f.read()
+    # with open(input_path, "r") as f:
+    #     corpus = f.read()
     
-    # 按照<|endoftext|> 进行切分
-    splited_text = split_on_special_tokens(text=corpus, special_tokens=special_tokens)
+    # # 按照<|endoftext|> 进行切分
+    # splited_text = split_on_special_tokens(text=corpus, special_tokens=special_tokens)
     
     
     
-    subword2count : dict[tuple[bytes], int] = {}
-    for text in splited_text:
-        # print(f"Processing text segment (length {len(text)}): {repr(text)}\n")
-        token_iter = regex.finditer(PAT, text)
-        for token in token_iter:
-            token_str = token.group(0)
-            token_bytes = token_str.encode("utf-8")
-            token_subwords =  tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
-            subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
-    
-    # logger.info(f"Initial subword2count size: {len(subword2count)}")
-    # for k, v in list(subword2count.items()):
-    #     logger.info(f"  {repr(k)}: {v}")
-    # logger.info(f"=====================================================================")
-    # b"</w>" 表示的是字节串, 这个本来可以家的，但是我们使用了pre-tokenization
-    
+    # subword2count : dict[tuple[bytes], int] = {}
+    # for text in splited_text:
+    #     # print(f"Processing text segment (length {len(text)}): {repr(text)}\n")
+    #     token_iter = regex.finditer(PAT, text)
+    #     for token in token_iter:
+    #         token_str = token.group(0)
+    #         token_bytes = token_str.encode("utf-8")
+    #         token_subwords =  tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
+    #         subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
     
     
     # 这里需要构建一个倒排索引，（b1, b2） -> subword2count.key
@@ -129,40 +146,16 @@ def train_bpe(
             for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
                 pair_count[(b1,b2)] = pair_count.get((b1,b2), 0) + sub_word_count
     
-
-    # with open("pair_count_original.txt", mode="w") as f:
-    #     pprint(pair_count, stream=f)
-    # with open("inverted_index_original.txt", mode="w") as f:
-    #     print(inverted_index, file=f)
-    qwe = 0
-    epoch = 0
+    num_merges = vocab_size - len(vocab)
+    pbar = tqdm(total=num_merges, desc="BPE merge steps")
     while len(vocab) < vocab_size:  
-        qwe +=1
         # 根据pair_count 找到出现频率最高的pair
         most_pairs = get_most_appear_pair(pair_count)
-        
-        # with open("subword2count_original.txt", "w", encoding="utf-8") as f:
-        #     print("ORIGINL subword2count : \n", file=f)
-        #     pprint(subword2count, stream=f)
-        #     print("\n\n", file=f)
-        
-        # with open("original_paircount.txt", "w", encoding="utf-8") as f:
-        #     print("original pair count : : \n", file=f)
-        #     pprint(pair_count, stream=f)
-        #     print("\n\n", file=f)
-        
-        # print(f"**** Most pair  is {most_pairs[0]} ****")
-          
+              
         # 更新 vocab，加入新合并的子词
         new_bytes =  most_pairs[0][0] + most_pairs[0][1]
         vocab[len(vocab)] = new_bytes
         
-    
-        # print(f"epoch is {epoch}")
-        # with open(f"pair_count{epoch}.txt", mode="w") as f:
-        #         pprint(pair_count, stream=f)
-        # if new_bytes == b' the':
-        #         print(f"pair count[ the] is {pair_count[(b' t', b'he')]}")
         # 记录合并操作
         merges.append(most_pairs[0])
         
@@ -198,16 +191,7 @@ def train_bpe(
                 del subword2count[tuple(old_sub_word_bytes)]
             else:
                 continue
-            # with open("subword2count_changed.txt", "w", encoding="utf-8") as f:
-            #     print("cahnged subword2count : \n", file=f)
-            #     pprint(subword2count, stream=f)
-            #     print("\n\n", file=f)
 
-            
-            # with open("inverted_index.txt", "w", encoding="utf-8") as f:
-            #     print(" inverted_index : \n", file=f)
-            #     print(inverted_index, file=f)
-            #     print("\n\n", file=f)
             # 更新inverted_index
             j = 0
             # print(f"most_pairs is {most_pairs[0]}")
@@ -247,16 +231,8 @@ def train_bpe(
                     n += 1
                 else:
                     n += 1
-            # with open("inverted_index_add.txt", "w", encoding="utf-8") as f:
-            #     print("add inverted_index : \n", file=f)
-            #     print(inverted_index, file=f)
-            #     print("\n\n", file=f)      
-            
-            
-            # with open("pair_count.txt", "w", encoding="utf-8") as f:
-            #     print("original_pair count : \n", file=f)
-            #     pprint(pair_count, stream=f)
-            #     print("\n\n", file=f)      
+                    
+                       
             # 更新pair_count
             # del pair_count[most_pairs[0]] 
             # 首先遍老的序列在pair_count中删除
@@ -305,25 +281,14 @@ def train_bpe(
                         post_new_pairs = (new_sub_word_bytes[m], new_sub_word_bytes[m+1])
                         # print(f"post_new_pairs is {post_new_pairs}")
                         pair_count[post_new_pairs] = pair_count.get(post_new_pairs, 0) + sub_word_bytes_count
-                        # if new_sub_word_bytes[m] == b' t' and new_sub_word_bytes[m+1] == b'h':
-                        #     with open("zxc.txt", mode='a') as f:
-                        #         print(f"===============", file=f)
-                        #         # pprint(pair_count, stream= f)
-                        #         print(f"old sub word bytes is {old_sub_word_bytes}", file=f)
-                        #         print(f"new sub word bytes is {new_sub_word_bytes}", file=f)
-                        #         print(f"sub_word_bytes_count is {sub_word_bytes_count}", file=f)
-                                
-                        #         print(f"************", file=f)
                     m += 1
                 else:
                     m += 1
-            # with open("pair_count_add.txt", "w", encoding="utf-8") as f:
-            #     print("add pair count : \n", file=f)
-            #     pprint(pair_count, stream=f)
-            #     print("\n\n", file=f)  
-        epoch =epoch + 1
-            # if epoch == 4 and qwe ==2:
-            #     assert False
+        if len(vocab) % 100 == 0:
+            logger.info(f"vocab size {len(vocab)}/{500}, vocab size = {len(vocab)} merge size {len(merges)}")
+        pbar.update(1)
+    
+    pbar.close()
     return vocab, merges    
 
 
@@ -352,11 +317,51 @@ def save_bytes_dict_to_json(d: Dict[int, bytes], filepath: str) -> None:
         json.dump(d_str, f, indent=2, ensure_ascii=False)
 
 import json
+import argparse
+import time
+from pprint import pformat
+from datetime import datetime
+
+def format_time(td_seconds: float) -> str:
+    days, rem = divmod(td_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{int(days)}d")
+    if hours:
+        parts.append(f"{int(hours)}h")
+    if minutes:
+        parts.append(f"{int(minutes)}m")
+    parts.append(f"{seconds:.2f}s")
+    return " ".join(parts)
+
 if __name__ == "__main__":
-    corpus_path  = "/home/niu/code/cs336/assignment1-basics/tests/fixtures/corpus.en"
-    vocab_size =  500
-    special_tokens = ["<|endoftext|>"]
-    vocab, merges = train_bpe(corpus_path, vocab_size, special_tokens)
-    # logger.info(f"vocab: \n{vocab}")
-    save_merges_to_json(merges, "./optim_merges.json")
-    save_bytes_dict_to_json(vocab, "./optim_vocab.json")
+    
+    # args
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
+    parser.add_argument("--vocab_size", type=int, default=10000)
+    parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
+    args = parser.parse_args()
+    args.merges_save_path = f"./TinyStoriesV2-GPT4-train_optim_merges_{args.vocab_size}.json"
+    args.vocab_save_path = f"./TinyStoriesV2-GPT4-train_optim_vocab_{args.vocab_size}.json"
+    logger.info(f"BPE training arguments:\n{pformat(vars(args))}")
+    
+    
+    # exp
+    start_time = time.time()
+    logger.info(f"start time: {datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')}")
+    vocab, merges = train_bpe(args.corpus_path, args.vocab_size, args.special_tokens)
+    end_time = time.time()
+    logger.info(f"end time: {datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"time cost(s): {format_time(end_time - start_time)}")
+    
+    
+    # save vocab to json
+    save_bytes_dict_to_json(vocab, args.vocab_save_path)
+    logger.info(f"save bytes dict to json success: {args.vocab_save_path}")
+    
+    # save merges to json
+    save_merges_to_json(merges, args.merges_save_path)
+    logger.info(f"save merges to json success: {args.merges_save_path}")
