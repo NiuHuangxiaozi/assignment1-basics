@@ -13,8 +13,8 @@ if root not in sys.path:
     sys.path.insert(0, root)
 
 
-from invertindex import InvertIndex
-from pretokenization_example import find_chunk_boundaries
+from cs336_basics.bpe.utils import InvertIndex, BucketMaxSD
+from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
 
 
 
@@ -31,7 +31,7 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-# logging.disable(logging.INFO)
+logging.disable(logging.INFO)
 
 
 
@@ -166,17 +166,17 @@ def train_bpe(
     inverted_index = InvertIndex(subword2count)
     
     # 构建整体键值对的计数字典
-    pair_count : Dict[Tuple[bytes, bytes], int] = {}
+    pair_count = BucketMaxSD()
     for sub_word_bytes, sub_word_count in subword2count.items():
             # logger.info(f" sub_word_bytes: {sub_word_bytes} count: {sub_word_count}")
             for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
-                pair_count[(b1,b2)] = pair_count.get((b1,b2), 0) + sub_word_count
+                pair_count.add((b1,b2), sub_word_count)
     
     num_merges = vocab_size - len(vocab)
     pbar = tqdm(total=num_merges, desc="BPE merge steps")
     while len(vocab) < vocab_size:  
         # 根据pair_count 找到出现频率最高的pair
-        most_pairs = get_most_appear_pair(pair_count)
+        most_pairs = pair_count.get_most_appear_pair()
               
         # 更新 vocab，加入新合并的子词
         new_bytes =  most_pairs[0][0] + most_pairs[0][1]
@@ -268,45 +268,31 @@ def train_bpe(
                     if k - 1 >= 0:
                         pre_pairs = (old_sub_word_bytes[k - 1], old_sub_word_bytes[k])
                         # print(f"pre_pairs is {pre_pairs}")
-                        pair_count[pre_pairs] = pair_count.get(pre_pairs, 0) - sub_word_bytes_count
-                        if pair_count[pre_pairs] == 0:
-                            del pair_count[pre_pairs]
+                        pair_count.delete(pre_pairs, sub_word_bytes_count)
                             
                     if k + 2 <= len(old_sub_word_bytes) - 1:
                           
                         post_pairs = (old_sub_word_bytes[k + 1], old_sub_word_bytes[k + 2])
                         # print(f"post_pairs is {post_pairs}")
-                        pair_count[post_pairs] = pair_count.get(post_pairs, 0) - sub_word_bytes_count
-                        if pair_count[post_pairs] == 0:
-                            del pair_count[post_pairs]
+                        pair_count.delete(post_pairs, sub_word_bytes_count)
                             
-                    if most_pairs[0] in pair_count.keys():
-                        del pair_count[most_pairs[0]]    
+                    pair_count.delete_all(most_pairs[0])    
                     k += 2
                 else:
                     k += 1
             
-            # with open("pair_count_deleted.txt", "w", encoding="utf-8") as f:
-            #     print("delete pair count : \n", file=f)
-            #     pprint(pair_count, stream=f)
-            #     print("\n\n", file=f)  
-                
             # 其次我们遍历新的序列，然后再次计算新加入的pair的count
             m = 0
-            # print(f"most_pairs is {most_pairs[0]}")
-            # print(f"new_sub_word_bytes is {new_sub_word_bytes}")
             while m < len(new_sub_word_bytes):
                 if new_sub_word_bytes[m] == most_pairs[0][0] + most_pairs[0][1]:
                     
                     # hehe的bug
                     if m - 1 >= 0:
                         pre_new_pairs = (new_sub_word_bytes[m-1], new_sub_word_bytes[m])
-                        # print(f"pre_new_pairs is {pre_new_pairs}")
-                        pair_count[pre_new_pairs] = pair_count.get(pre_new_pairs, 0) + sub_word_bytes_count
+                        pair_count.add(pre_new_pairs, sub_word_bytes_count)
                     if m + 1 <= len(new_sub_word_bytes)-1:
                         post_new_pairs = (new_sub_word_bytes[m], new_sub_word_bytes[m+1])
-                        # print(f"post_new_pairs is {post_new_pairs}")
-                        pair_count[post_new_pairs] = pair_count.get(post_new_pairs, 0) + sub_word_bytes_count
+                        pair_count.add(post_new_pairs, sub_word_bytes_count)
                     m += 1
                 else:
                     m += 1
