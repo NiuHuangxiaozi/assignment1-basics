@@ -12,10 +12,17 @@ root = os.path.dirname(os.path.dirname(__file__))
 if root not in sys.path:
     sys.path.insert(0, root)
 
-
 from cs336_basics.bpe.utils import InvertIndex, BucketMaxSD
 from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
 
+# logger
+logging.basicConfig(
+    filename='./logs/owt_train_optimbpe_32000.log',
+    level=logging.INFO,
+    filemode='a',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+# logging.disable(logging.INFO)
 
 
 # constants
@@ -23,15 +30,6 @@ INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not co
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 NUM_CHUNKS = 10000
 
-
-# logger
-logging.basicConfig(
-    filename='bpe_debug.log',
-    level=logging.INFO,
-    filemode='a',
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-logging.disable(logging.INFO)
 
 
 
@@ -352,12 +350,14 @@ if __name__ == "__main__":
     
     # args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/owt_train.txt")
-    parser.add_argument("--vocab_size", type=int, default=32000)
+    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
+    parser.add_argument("--vocab_size", type=int, default=10000)
+    parser.add_argument("--merges_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_merges_10000.json")
+    parser.add_argument("--vocab_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_vocab_10000.json")
     parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
     args = parser.parse_args()
-    args.merges_save_path = f"./owt_train_optim_merges_{args.vocab_size}.json"
-    args.vocab_save_path = f"./owt_train_optim_vocab_{args.vocab_size}.json"
+    
+
     logger.info(f"BPE training arguments:\n{pformat(vars(args))}")
     
     
