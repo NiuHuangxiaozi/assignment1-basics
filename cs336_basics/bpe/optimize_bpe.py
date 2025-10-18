@@ -13,15 +13,15 @@ if root not in sys.path:
     sys.path.insert(0, root)
 
 
-from cs336_basics.bpe.invertindex import InvertIndex
-from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
+from invertindex import InvertIndex
+from pretokenization_example import find_chunk_boundaries
 
 
 
 # constants
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-NUM_PROCESSES = 8
+NUM_CHUNKS = 10000
 
 
 # logger
@@ -83,22 +83,23 @@ def get_most_appear_pair(d: Dict[Tuple[bytes, bytes], int]):
     return (best_pair, max_freq)
 
 
-def pretokenize_mp(input_path, special_tokens, PAT, num_processes=None):
+def pretokenize_mp(input_path, special_tokens, PAT, num_chunks=None):
     
-    if num_processes is None:
-        num_processes = mp.cpu_count()
-        logger.info(f"Using all {num_processes} CPU cores for pre-tokenization")
+    if num_chunks is None:
+        num_chunks = mp.cpu_count()
+        logger.info(f"Split the file into {num_chunks} chunks")
     else:
-        logger.info(f"Using {num_processes} CPU cores for pre-tokenization")
+        logger.info(f"Split the file into {num_chunks} chunks")
     
     
     
     logger.info(f"start counting subwords...")
     subword2count : dict[tuple[bytes], int] = {}
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+        boundaries = find_chunk_boundaries(f, num_chunks, b"<|endoftext|>")
         
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
+        for start, end in tqdm(zip(boundaries[:-1], boundaries[1:]), total=len(boundaries)-1, desc="Pretokenizing chunks..."):
+            logger.info(f"Pretokenizing chunk {start} to {end}")
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
             
@@ -137,7 +138,7 @@ def train_bpe(
     merges: List[tuple[bytes, bytes]] = []
             
     logger.info(f"start pre-tokenization...")
-    subword2count : dict[tuple[bytes], int] = pretokenize_mp(input_path=input_path, special_tokens=special_tokens, PAT=PAT, num_processes=NUM_PROCESSES)
+    subword2count : dict[tuple[bytes], int] = pretokenize_mp(input_path=input_path, special_tokens=special_tokens, PAT=PAT, num_chunks=NUM_CHUNKS)
     logger.info(f"end pre-tokenization")
 
     
@@ -309,7 +310,7 @@ def train_bpe(
                     m += 1
                 else:
                     m += 1
-        if len(vocab) % 100 == 0:
+        if len(vocab) % 5 == 0:
             logger.info(f"vocab size {len(vocab)}/{vocab_size}, vocab size = {len(vocab)} merge size {len(merges)}")
         pbar.update(1)
     
@@ -365,12 +366,12 @@ if __name__ == "__main__":
     
     # args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
-    parser.add_argument("--vocab_size", type=int, default=10000)
+    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/owt_train.txt")
+    parser.add_argument("--vocab_size", type=int, default=32000)
     parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
     args = parser.parse_args()
-    args.merges_save_path = f"./TinyStoriesV2-GPT4-train_optim_merges_{args.vocab_size}.json"
-    args.vocab_save_path = f"./TinyStoriesV2-GPT4-train_optim_vocab_{args.vocab_size}.json"
+    args.merges_save_path = f"./owt_train_optim_merges_{args.vocab_size}.json"
+    args.vocab_save_path = f"./owt_train_optim_vocab_{args.vocab_size}.json"
     logger.info(f"BPE training arguments:\n{pformat(vars(args))}")
     
     

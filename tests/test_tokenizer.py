@@ -246,6 +246,7 @@ def test_unicode_string_with_special_tokens_matches_tiktoken():
 
 
 def test_overlapping_special_tokens():
+    
     tokenizer = get_tokenizer_from_vocab_merges_path(
         vocab_path=VOCAB_PATH,
         merges_path=MERGES_PATH,
@@ -428,6 +429,9 @@ def test_encode_iterable_memory_usage():
             ids.append(_id)
 
 
+
+
+
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"),
     reason="rlimit support for non-linux systems is spotty.",
@@ -443,6 +447,7 @@ def test_encode_memory_usage():
     )
     with open(FIXTURES_PATH / "tinystories_sample_5M.txt") as f:
         contents = f.read()
+        print(contents)
         _ = _encode(tokenizer, contents)
 
 
