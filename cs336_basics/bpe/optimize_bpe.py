@@ -7,7 +7,6 @@ import sys
 import copy 
 from typing import Dict, Tuple, List
 import multiprocessing as mp
-# mp.set_start_method('spawn', force=True)
 root = os.path.dirname(os.path.dirname(__file__))
 if root not in sys.path:
     sys.path.insert(0, root)
@@ -28,7 +27,7 @@ logger = logging.getLogger(__name__)
 # constants
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-NUM_CHUNKS = 10000
+NUM_CHUNKS = 100000
 
 
 
@@ -72,14 +71,31 @@ def print_split_docs(splited_text: list[str]):
     logger.info("Split docs:\n%s", joined)
     
 
-def get_most_appear_pair(d: Dict[Tuple[bytes, bytes], int]):
-    max_freq = max(d.values())
-    candidates = [pair for pair, freq in d.items() if freq == max_freq]
+# def get_most_appear_pair(d: Dict[Tuple[bytes, bytes], int]):
+#     max_freq = max(d.values())
+#     candidates = [pair for pair, freq in d.items() if freq == max_freq]
     
-    # 直接比较元组，Python的元组比较就是先比较第一个元素，再比较第二个元素
-    best_pair = max(candidates)
-    return (best_pair, max_freq)
+#     # 直接比较元组，Python的元组比较就是先比较第一个元素，再比较第二个元素
+#     best_pair = max(candidates)
+#     return (best_pair, max_freq)
 
+
+
+def pre_tokenize_chunk(args: tuple[str, list[str], str])-> dict[tuple[bytes], int] :
+    
+    chunk, special_tokens, PAT = args
+    # print(f" ======  \n my chunk length: {chunk} \n====== ")
+    splits = split_on_special_tokens(text=chunk, special_tokens=special_tokens)
+    # print(f"my splits length: {len(splits)}")
+    local_subword2count : dict[tuple[bytes], int] = {}
+    for text in splits:
+        for token in regex.finditer(PAT, text):
+            token_str = token.group(0)
+            token_bytes = token_str.encode("utf-8")
+            token_subwords = tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
+            local_subword2count[token_subwords] = local_subword2count.get(token_subwords, 0) + 1
+    # print(f"local_subword2count size: {local_subword2count}")
+    return local_subword2count
 
 def pretokenize_mp(input_path, special_tokens, PAT, num_chunks=None):
     
@@ -88,28 +104,55 @@ def pretokenize_mp(input_path, special_tokens, PAT, num_chunks=None):
         logger.info(f"Split the file into {num_chunks} chunks")
     else:
         logger.info(f"Split the file into {num_chunks} chunks")
-    
-    
-    
-    logger.info(f"start counting subwords...")
+
+    logger.info(f"start pre-tokenization...")
+    before_pretokenization_time = time.time()
+    logger.info(f"pretokenization start time: {format_time(before_pretokenization_time)}")
     subword2count : dict[tuple[bytes], int] = {}
     with open(input_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_chunks, b"<|endoftext|>")
         
+        # 给每一个子进程准备输入参数
+        chunk_args = []
         for start, end in tqdm(zip(boundaries[:-1], boundaries[1:]), total=len(boundaries)-1, desc="Pretokenizing chunks..."):
             logger.info(f"Pretokenizing chunk {start} to {end}")
             f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            chunk = f.read(end - start).decode("utf-8", errors="ignore") 
             
-            splits = split_on_special_tokens(text=chunk, special_tokens=special_tokens)
-            for text in splits:
-                for token in regex.finditer(PAT, text):
-                    token_str = token.group(0)
-                    token_bytes = token_str.encode("utf-8")
-                    token_subwords = tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
-                    subword2count[token_subwords] = subword2count.get(token_subwords, 0) + 1
-                
-    logger.info(f"end counting subwords")
+            chunk_args.append(
+                (
+                    chunk,
+                    special_tokens,
+                    PAT
+                )
+            )
+    logger.info(f"chunk length is { len(chunk_args)} chunk_args size: \n{pformat(chunk_args)}")
+    processes_to_use = None
+    if processes_to_use is None:
+        # Use a conservative default to prevent memory issues on machines with many cores.
+        processes_to_use = min(mp.cpu_count(), 6)
+    
+    processes_to_use = min(processes_to_use, len(chunk_args))      
+    
+    
+    with mp.Pool(processes=processes_to_use) as pool:
+        # print(f"Starting pre-tokenization with {processes_to_use} processes on {len(chunk_args)} chunks...")
+        
+        # Use imap_unordered for memory efficiency. It returns an iterator.
+        results_iterator = pool.imap(pre_tokenize_chunk, chunk_args)
+        
+        # Iterate through results as they complete and merge them one by one.
+        for local_subword2count in tqdm(results_iterator, total=len(chunk_args), desc="Processing chunks"):
+            # print(f"local_subword2count size: {len(local_subword2count)}")
+            for k, v in local_subword2count.items():
+                subword2count[k] = subword2count.get(k, 0) + v
+    
+    
+    # print(f"subword2count size: {len(subword2count)}")
+    after_pretokenization_time = time.time()
+    logger.info(f"pretokenization end time: {format_time(after_pretokenization_time)}")
+    logger.info(f"pretokenization time cost: {format_time(after_pretokenization_time - before_pretokenization_time)}")
+             
     return subword2count
 
 
@@ -347,13 +390,13 @@ def format_time(td_seconds: float) -> str:
     return " ".join(parts)
 
 if __name__ == "__main__":
-    
+    mp.set_start_method('spawn', force=True)
     # args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
-    parser.add_argument("--vocab_size", type=int, default=10000)
-    parser.add_argument("--merges_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_merges_10000.json")
-    parser.add_argument("--vocab_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_vocab_10000.json")
+    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/owt_train.txt")
+    parser.add_argument("--vocab_size", type=int, default=32000)
+    parser.add_argument("--merges_save_path", type=str, default="./output/owt_train_optimbpe_merges_32000.json")
+    parser.add_argument("--vocab_save_path", type=str, default="./output/owt_train_optimbpe_vocab_32000.json")
     parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
     args = parser.parse_args()
     
