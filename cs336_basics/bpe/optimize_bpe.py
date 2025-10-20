@@ -27,8 +27,9 @@ logger = logging.getLogger(__name__)
 # constants
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-NUM_CHUNKS = 100000
 
+NUM_CHUNKS = 2000
+NUM_PRE_TOKEN_PROCESS = os.cpu_count()
 
 
 
@@ -97,6 +98,13 @@ def pre_tokenize_chunk(args: tuple[str, list[str], str])-> dict[tuple[bytes], in
     # print(f"local_subword2count size: {local_subword2count}")
     return local_subword2count
 
+
+def _chunk_generator(f, boundaries, special_tokens, PAT):
+    for start, end in zip(boundaries[:-1], boundaries[1:]):
+        f.seek(start)
+        chunk = f.read(end - start).decode("utf-8", errors="ignore")
+        yield (chunk, special_tokens, PAT)
+
 def pretokenize_mp(input_path, special_tokens, PAT, num_chunks=None):
     
     if num_chunks is None:
@@ -109,43 +117,46 @@ def pretokenize_mp(input_path, special_tokens, PAT, num_chunks=None):
     before_pretokenization_time = time.time()
     logger.info(f"pretokenization start time: {format_time(before_pretokenization_time)}")
     subword2count : dict[tuple[bytes], int] = {}
+    
     with open(input_path, "rb") as f:
+        
         boundaries = find_chunk_boundaries(f, num_chunks, b"<|endoftext|>")
         
-        # 给每一个子进程准备输入参数
-        chunk_args = []
-        for start, end in tqdm(zip(boundaries[:-1], boundaries[1:]), total=len(boundaries)-1, desc="Pretokenizing chunks..."):
-            logger.info(f"Pretokenizing chunk {start} to {end}")
-            f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore") 
+        real_chunk_size = len(boundaries) - 1
+        processes_to_use = min(mp.cpu_count(), NUM_PRE_TOKEN_PROCESS)
+        processes_to_use = min(processes_to_use, real_chunk_size)     
+        
+        logger.info(f"processes_to_use: {processes_to_use} and real chunksize we use is :  {real_chunk_size}")
+        
+        chunk_generator = _chunk_generator(f, boundaries, special_tokens, PAT)
+        pbar = tqdm(total=real_chunk_size, desc="Pre tokenize chunks...")
+        for i in range(0, real_chunk_size, processes_to_use):
+            start = i
+            end = min(i + processes_to_use, real_chunk_size)
+            chunk_args_i = []
+            # print(f"start is {start}, end is {end}")
+            for _ in range(start, end):
+                chunk :Tuple = next(chunk_generator)
+                chunk_args_i.append(chunk)
             
-            chunk_args.append(
-                (
-                    chunk,
-                    special_tokens,
-                    PAT
-                )
-            )
-    logger.info(f"chunk length is { len(chunk_args)} chunk_args size: \n{pformat(chunk_args)}")
-    processes_to_use = None
-    if processes_to_use is None:
-        # Use a conservative default to prevent memory issues on machines with many cores.
-        processes_to_use = min(mp.cpu_count(), 6)
-    
-    processes_to_use = min(processes_to_use, len(chunk_args))      
-    
-    
-    with mp.Pool(processes=processes_to_use) as pool:
-        # print(f"Starting pre-tokenization with {processes_to_use} processes on {len(chunk_args)} chunks...")
+            real_processes_to_use = len(chunk_args_i)
+            with mp.Pool(processes=real_processes_to_use) as pool:
+                results_iterator = pool.imap(pre_tokenize_chunk, chunk_args_i)
+                for local_subword2count in tqdm(results_iterator, total=len(chunk_args_i), desc=f"Processing {len(chunk_args_i)} mini chunks", leave=False):
+                    for k, v in local_subword2count.items():
+                        subword2count[k] = subword2count.get(k, 0) + v
+            pbar.update(len(chunk_args_i))        
+    # with mp.Pool(processes=processes_to_use) as pool:
+    #     # print(f"Starting pre-tokenization with {processes_to_use} processes on {len(chunk_args)} chunks...")
         
-        # Use imap_unordered for memory efficiency. It returns an iterator.
-        results_iterator = pool.imap(pre_tokenize_chunk, chunk_args)
+    #     # Use imap_unordered for memory efficiency. It returns an iterator.
+    #     results_iterator = pool.imap(pre_tokenize_chunk, chunk_args)
         
-        # Iterate through results as they complete and merge them one by one.
-        for local_subword2count in tqdm(results_iterator, total=len(chunk_args), desc="Processing chunks"):
-            # print(f"local_subword2count size: {len(local_subword2count)}")
-            for k, v in local_subword2count.items():
-                subword2count[k] = subword2count.get(k, 0) + v
+    #     # Iterate through results as they complete and merge them one by one.
+    #     for local_subword2count in tqdm(results_iterator, total=len(chunk_args), desc="Processing chunks"):
+    #         # print(f"local_subword2count size: {len(local_subword2count)}")
+    #         for k, v in local_subword2count.items():
+    #             subword2count[k] = subword2count.get(k, 0) + v
     
     
     # print(f"subword2count size: {len(subword2count)}")
