@@ -28,7 +28,7 @@ logging.disable(logging.INFO)
 INITIAL_VOCAB_SIZE = 256   # number of initial tokens (byte values) ，do not contain special tokens
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-NUM_CHUNKS = 2000
+NUM_CHUNKS = 1000
 NUM_PRE_TOKEN_PROCESS = os.cpu_count()
 
 
