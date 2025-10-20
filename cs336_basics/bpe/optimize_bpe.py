@@ -21,7 +21,7 @@ logging.basicConfig(
     filemode='a',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-# logging.disable(logging.INFO)
+logging.disable(logging.INFO)
 
 
 # constants
@@ -218,7 +218,7 @@ def train_bpe(
     inverted_index = InvertIndex(subword2count)
     
     # 构建整体键值对的计数字典
-    pair_count = BucketMaxSD()
+    pair_count = BucketMaxSD(logger=logger)
     for sub_word_bytes, sub_word_count in subword2count.items():
             # logger.info(f" sub_word_bytes: {sub_word_bytes} count: {sub_word_count}")
             for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
@@ -400,12 +400,15 @@ def format_time(td_seconds: float) -> str:
     parts.append(f"{seconds:.2f}s")
     return " ".join(parts)
 
+
+
+from cs336_basics.bpe.ref_bpe import run_train_bpe
 if __name__ == "__main__":
-    mp.set_start_method('spawn', force=True)
+    mp.set_start_method('fork')
     # args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/owt_train.txt")
-    parser.add_argument("--vocab_size", type=int, default=32000)
+    parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
+    parser.add_argument("--vocab_size", type=int, default=10000)
     parser.add_argument("--merges_save_path", type=str, default="./output/owt_train_optimbpe_merges_32000.json")
     parser.add_argument("--vocab_save_path", type=str, default="./output/owt_train_optimbpe_vocab_32000.json")
     parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])

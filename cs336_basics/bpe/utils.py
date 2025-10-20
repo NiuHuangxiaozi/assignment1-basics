@@ -1,13 +1,13 @@
 
 
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Set
 from collections import defaultdict
 import json
 class InvertIndex:
     
     def __init__(self, subword2count : dict[tuple[bytes], int]):
         self.subword2count = subword2count
-        self.index: Dict[Tuple[bytes, bytes], List[int]] = defaultdict(list)
+        self.index: Dict[Tuple[bytes, bytes], Set[int]] = defaultdict(set)
         self.sub_words_bytes_list : List[List[bytes]]= []
         
         self._init()
@@ -18,7 +18,7 @@ class InvertIndex:
         index_lines = []
         for k, v in self.index.items():
             key_repr = "(" + ", ".join(repr(b) for b in k) + ")"
-            val_repr = "[" + ", ".join(str(i) for i in v) + "]"
+            val_repr = "{" + ", ".join(str(i) for i in v) + "}"
             index_lines.append(f"    {key_repr} : {val_repr}")
         index_block = "{\n" + "\n".join(index_lines) + "\n  }"
 
@@ -49,7 +49,7 @@ class InvertIndex:
         for sub_word_bytes in self.subword2count.keys():
             self.sub_words_bytes_list.append(list(sub_word_bytes))
             for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
-                self.index[(b1,b2)].append(sub_words_bytes_list_index)
+                self.index[(b1,b2)].add(sub_words_bytes_list_index)
             sub_words_bytes_list_index += 1
 
     
@@ -84,7 +84,6 @@ class InvertIndex:
             return
         else:
             if index in self.index[pairs]:
-                while index in self.index[pairs]:
                     self.index[pairs].remove(index)
             if len(self.index[pairs]) == 0:
                 del self.index[pairs]
@@ -94,15 +93,15 @@ class InvertIndex:
             一行就把pairs在不在的情况全部包括了
         '''
         if index not in self.index[pairs]:
-            self.index[pairs].append(index)
+            self.index[pairs].add(index)
             
 
-
-
+import logging
 from typing import Tuple, Dict  
 from sortedcontainers import SortedDict
 class BucketMaxSD:
-    def __init__(self):
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
         self.counts: Dict[Tuple[bytes, bytes], int] = {}
         self.buckets = SortedDict() # Num->Set(Pair)
     
@@ -115,32 +114,46 @@ class BucketMaxSD:
         max_number, pair_set = self.buckets.peekitem(-1)
         # 如果多个 pair，选择字典序最大的 tuple
         best_pair = max(pair_set)
+        self.logger.info(f"best_pair is {best_pair} and max_number is {max_number}")
         return (best_pair, max_number)
     
     def add(self, pair: Tuple[bytes, bytes], count: int):
-        
-        
-        # 1、修改count
-        old_count = self.counts.get(pair, 0)
-        # 创建新的或者更新
-        self.counts[pair] = old_count + count
-        new_count = self.counts[pair]
-        
-        
-        # 2、修改buckets
-        # 将原来old_count对应的pair删去
-        if old_count != 0:
-            assert old_count in self.buckets.keys()
-            self.buckets[old_count].remove(pair)
-            if len(self.buckets[old_count]) == 0:
-                del self.buckets[old_count]
-        
-        # 将new_count对应的pair添加进去
-        if new_count in self.buckets.keys():
-            self.buckets[new_count].add(pair)
+        if count <= 0:
+            # 无需处理或明确禁止
+            return
+
+        old_count = self.counts.get(pair)
+        if old_count is None:
+            # 新 pair
+            new_count = count
+            self.counts[pair] = new_count
+            # 插入到 buckets[new_count]
+            bucket = self.buckets.get(new_count)
+            if bucket is None:
+                self.buckets[new_count] = {pair}
+            else:
+                bucket.add(pair)
         else:
-            self.buckets[new_count] = set()
-            self.buckets[new_count].add(pair)
+            # 已有 pair
+            new_count = old_count + count
+            self.counts[pair] = new_count
+
+            # 移除旧 bucket entry
+            bucket_old = self.buckets[old_count]
+            bucket_old.remove(pair)
+            if not bucket_old:
+                # 空了就删 key
+                del self.buckets[old_count]
+
+            # 插入到新_count bucket
+            bucket_new = self.buckets.get(new_count)
+            if bucket_new is None:
+                self.buckets[new_count] = {pair}
+            else:
+                bucket_new.add(pair)
+
+        # 可选：日志延后或条件日志
+        # self.logger.info(f"Added pair {pair}: old_count={old_count}, new_count={new_count}")
         
     
     
@@ -166,6 +179,7 @@ class BucketMaxSD:
         # 1、修改count
         original_count = self.counts[pair]
         self.counts[pair] = original_count - count
+        new_count = self.counts[pair]
         
         
         # 如果原来的count在buckets中存在，那么bucket需要更新
@@ -175,13 +189,13 @@ class BucketMaxSD:
                 del self.buckets[original_count]
                 
         # 如果这个pair的count小于0，那么就删除
-        if self.counts[pair] <= 0:
+        if new_count <= 0:
             del self.counts[pair]    
         else:                    
-            if self.counts[pair] in self.buckets.keys():
-                self.buckets[self.counts[pair]].add(pair)
+            if new_count in self.buckets.keys():
+                self.buckets[new_count].add(pair)
             else:
-                self.buckets[self.counts[pair]] = set()
-                self.buckets[self.counts[pair]].add(pair)
+                self.buckets[new_count] = set()
+                self.buckets[new_count].add(pair)
            
-                
+    
