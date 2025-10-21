@@ -164,6 +164,49 @@ def bytes_to_safe_str(b: bytes) -> str:
     except UnicodeDecodeError:
         # 不能utf-8 decode 的，用 repr 或 base64 表示
         return repr(b)
+import re
+import ast
+import base64
+from typing import Optional
+def safe_str_to_bytes(s: str) -> bytes:
+    """
+    逆向 bytes_to_safe_str 的函数 —— 尝试把输入的 str 转换回 bytes。
+    如果 s 是有效 UTF-8 文本，则直接 encode；
+    如果 s 是 repr(b) 返回的格式，则用 ast.literal_eval 解析；
+    如果两个都不行，尝试 base64 或报错。
+    """
+    # 第一种可能：它是一个合法的 UTF-8 字符串（即原来 b.decode('utf-8') 成功时的输出）
+    try:
+        # 这里 encode 会保留原 bytes
+        return s.encode('utf-8')
+    except UnicodeEncodeError:
+        pass
+
+    # 第二种可能：它是 repr(b) 的形式，比如 "b'...'"
+    # 那么我们尝试用 ast.literal_eval 解析这个字符串为一个 bytes 对象
+    # 这种方式比较安全，不直接用 eval。
+    # 需要先判断字符串是否以 "b'" 或 'b"' 开头
+    if (s.startswith("b'") and s.endswith("'")) or (s.startswith('b"') and s.endswith('"')):
+        try:
+            b = ast.literal_eval(s)
+            if isinstance(b, (bytes, bytearray)):
+                return bytes(b)
+        except (ValueError, SyntaxError):
+            pass
+
+    # 第三种可能：你在 repr 时用了 base64（如果你改写了 bytes_to_safe_str，用 base64 表示）
+    # 例如你可能会做 base64.b64encode(b).decode('ascii')；你也可以在这里做 base64 解码尝试
+    # 这里是一个简单假设：如果字符串看起来像 base64 编码（由 A-Z a-z 0-9 + / = 组成）且长度适合，
+    # 我们可以尝试 base64 解码
+    try:
+        b = base64.b64decode(s, validate=True)
+        return b
+    except (base64.binascii.Error, ValueError):
+        pass
+
+    # 如果都不能，还原失败，抛出异常或返回空 bytes
+    raise ValueError(f"无法把这个 safe string 还原为 bytes: {s!r}")
+
 def save_merges_to_json(d: List[tuple[bytes, bytes]], filepath: str) -> None:
     # 将 bytes 转为可写的 str
     d_str = [ (bytes_to_safe_str(pairs[0]), bytes_to_safe_str(pairs[1])) for pairs in d]

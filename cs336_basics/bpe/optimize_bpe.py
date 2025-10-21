@@ -14,14 +14,15 @@ if root not in sys.path:
 from cs336_basics.bpe.utils import InvertIndex, BucketMaxSD
 from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
 
+from cs336_basics.utils import save_bytes_dict_to_pickle, save_merges_to_pickle
 # logger
 logging.basicConfig(
-    filename='./logs/owt_train_optimbpe_32000.log',
+    filename='./logs/TinyStoriesV2-GPT4-train_optim_10000.log',
     level=logging.INFO,
     filemode='a',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-logging.disable(logging.INFO)
+# logging.disable(logging.INFO)
 
 
 # constants
@@ -93,9 +94,9 @@ def pre_tokenize_chunk(args: tuple[str, list[str], str])-> dict[tuple[bytes], in
         for token in regex.finditer(PAT, text):
             token_str = token.group(0)
             token_bytes = token_str.encode("utf-8")
+            
             token_subwords = tuple([token_bytes[i:i+1] for i in range(len(token_bytes))])
             local_subword2count[token_subwords] = local_subword2count.get(token_subwords, 0) + 1
-    # print(f"local_subword2count size: {local_subword2count}")
     return local_subword2count
 
 
@@ -220,10 +221,9 @@ def train_bpe(
     # 构建整体键值对的计数字典
     pair_count = BucketMaxSD(logger=logger)
     for sub_word_bytes, sub_word_count in subword2count.items():
-            # logger.info(f" sub_word_bytes: {sub_word_bytes} count: {sub_word_count}")
-            for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
-                pair_count.add((b1,b2), sub_word_count)
-    
+        # logger.info(f" sub_word_bytes: {sub_word_bytes} count: {sub_word_count}")
+        for b1, b2 in zip(sub_word_bytes, sub_word_bytes[1:]):
+            pair_count.add((b1,b2), sub_word_count)
     num_merges = vocab_size - len(vocab)
     pbar = tqdm(total=num_merges, desc="BPE merge steps")
     while len(vocab) < vocab_size:  
@@ -360,27 +360,27 @@ def train_bpe(
 
 
 
-# 本地调试区域
-def bytes_to_safe_str(b: bytes) -> str:
-    try:
-        return b.decode('utf-8')
-    except UnicodeDecodeError:
-        # 不能utf-8 decode 的，用 repr 或 base64 表示
-        return repr(b)
-def save_merges_to_json(d: List[tuple[bytes, bytes]], filepath: str) -> None:
-    # 将 bytes 转为可写的 str
-    d_str = [ (bytes_to_safe_str(pairs[0]), bytes_to_safe_str(pairs[1])) for pairs in d]
-    # 把字典写入 JSON 文件
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(d_str, f, indent=2, ensure_ascii=False)
-def save_bytes_dict_to_json(d: Dict[int, bytes], filepath: str) -> None:
-    # 将 bytes 转为可写的 str
-    d_str = {k: bytes_to_safe_str(v) for k, v in d.items()}
-    # 把字典写入 JSON 文件
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(d_str, f, indent=2, ensure_ascii=False)
+# # 本地调试区域
+# def bytes_to_safe_str(b: bytes) -> str:
+#     try:
+#         return b.decode('utf-8')
+#     except UnicodeDecodeError:
+#         # 不能utf-8 decode 的，用 repr 或 base64 表示
+#         return repr(b)
+# def save_merges_to_json(d: List[tuple[bytes, bytes]], filepath: str) -> None:
+#     # 将 bytes 转为可写的 str
+#     d_str = [ (bytes_to_safe_str(pairs[0]), bytes_to_safe_str(pairs[1])) for pairs in d]
+#     # 把字典写入 JSON 文件
+#     with open(filepath, "w", encoding="utf-8") as f:
+#         json.dump(d_str, f, indent=2, ensure_ascii=False)
+# def save_bytes_dict_to_json(d: Dict[int, bytes], filepath: str) -> None:
+#     # 将 bytes 转为可写的 str
+#     d_str = {k: bytes_to_safe_str(v) for k, v in d.items()}
+#     # 把字典写入 JSON 文件
+#     with open(filepath, "w", encoding="utf-8") as f:
+#         json.dump(d_str, f, indent=2, ensure_ascii=False)
 
-import json
+# import json
 import argparse
 import time
 from pprint import pformat
@@ -402,15 +402,14 @@ def format_time(td_seconds: float) -> str:
 
 
 
-from cs336_basics.bpe.ref_bpe import run_train_bpe
 if __name__ == "__main__":
     mp.set_start_method('fork')
     # args
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus_path", type=str, default="/home/niu/code/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt")
     parser.add_argument("--vocab_size", type=int, default=10000)
-    parser.add_argument("--merges_save_path", type=str, default="./output/owt_train_optimbpe_merges_32000.json")
-    parser.add_argument("--vocab_save_path", type=str, default="./output/owt_train_optimbpe_vocab_32000.json")
+    parser.add_argument("--merges_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_merges_10000.pkl")
+    parser.add_argument("--vocab_save_path", type=str, default="./output/TinyStoriesV2-GPT4-train_optim_vocab_10000.pkl")
     parser.add_argument("--special_tokens", type=list, default=["<|endoftext|>"])
     args = parser.parse_args()
     
@@ -427,10 +426,11 @@ if __name__ == "__main__":
     logger.info(f"time cost(s): {format_time(end_time - start_time)}")
     
     
-    # save vocab to json
-    save_bytes_dict_to_json(vocab, args.vocab_save_path)
-    logger.info(f"save bytes dict to json success: {args.vocab_save_path}")
     
-    # save merges to json
-    save_merges_to_json(merges, args.merges_save_path)
-    logger.info(f"save merges to json success: {args.merges_save_path}")
+    # save vocab to pickle
+    save_bytes_dict_to_pickle(vocab, args.vocab_save_path)
+    logger.info(f"save bytes dict to pickle success: {args.vocab_save_path}")
+    
+    # save merges to pickle
+    save_merges_to_pickle(merges, args.merges_save_path)
+    logger.info(f"save merges to pickle success: {args.merges_save_path}")
