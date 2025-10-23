@@ -13,7 +13,7 @@ from torch import Tensor
 
 
 
-
+from cs336_basics.modules.linear import NIULinear
 def run_linear(
     d_in: int,
     d_out: int,
@@ -33,31 +33,30 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    linear = NIULinear(d_in, d_out)
+    state_dict = dict()
+    state_dict["weight"] = weights
+    linear.load_state_dict(state_dict)
+    return linear(in_features)
 
 
+
+from cs336_basics.modules.embedding import NIUEmbedding
 def run_embedding(
     vocab_size: int,
     d_model: int,
     weights: Float[Tensor, " vocab_size d_model"],
     token_ids: Int[Tensor, " ..."],
 ) -> Float[Tensor, " ... d_model"]:
-    """
-    Given the weights of an Embedding layer, get the embeddings for a batch of token ids.
 
-    Args:
-        vocab_size (int): The number of embeddings in the vocabulary
-        d_model (int): The size of the embedding dimension
-        weights (Float[Tensor, "vocab_size d_model"]): The embedding vectors to fetch from
-        token_ids (Int[Tensor, "..."]): The set of token ids to fetch from the Embedding layer
-
-    Returns:
-        Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
-    """
-
-    raise NotImplementedError
+    embedding = NIUEmbedding(vocab_size, d_model)
+    state_dict = dict()
+    state_dict["dictionary"] = weights
+    embedding.load_state_dict(state_dict)
+    return embedding(token_ids)
 
 
+from cs336_basics.modules.swigluffn import NIUSWIGLUFFN
 def run_swiglu(
     d_model: int,
     d_ff: int,
@@ -87,7 +86,13 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    swiglu = NIUSWIGLUFFN(d_model, d_ff, device = in_features.device, dtype = in_features.dtype)
+    state_dict = dict()
+    state_dict["w1.weight"] = w1_weight
+    state_dict["w2.weight"] = w2_weight
+    state_dict["w3.weight"] = w3_weight
+    swiglu.load_state_dict(state_dict)
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -362,6 +367,7 @@ def run_transformer_lm(
     raise NotImplementedError
 
 
+from cs336_basics.modules.rmsnorn import NIURMSNorm
 def run_rmsnorm(
     d_model: int,
     eps: float,
@@ -382,7 +388,11 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rmsnorm = NIURMSNorm(d_model, eps)
+    state_dict = dict()
+    state_dict["g"] = weights
+    rmsnorm.load_state_dict(state_dict)
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:

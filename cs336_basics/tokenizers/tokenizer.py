@@ -1,10 +1,10 @@
-
 import json
-import pprint
 import regex
 from typing import Iterable, Iterator, List, Dict
+from multiprocessing import Pool
 
-
+from cs336_basics.utils import load_bytes_dict_from_pickle, load_merges_from_pickle
+from tqdm import tqdm
 
 # copy from bpe training, 有小的改动
 def split_on_special_tokens(text: str, special_tokens: List[str]) -> List[str]:
@@ -108,16 +108,10 @@ class Tokenizer:
         '''
         
          # 读取 vocab 文件
-        with open(vocab_filepath, "r", encoding="utf-8") as f:
-            vocab_dict = json.load(f)
-        vocab : Dict[int, bytes] = {int(i): t.encode("utf-8") for i, t in vocab_dict.items()}
-
+        vocab: dict[int, bytes] = load_bytes_dict_from_pickle(vocab_filepath)
 
         # 读取 merges 文件
-        with open(merges_filepath, "r", encoding="utf-8") as f:
-            merges_list = json.load(f)
-        # 把 merges 转为 rank 表
-        merges : List[tuple[bytes, bytes]] = [(pair[0].encode("utf-8"), pair[1].encode("utf-8")) for _, pair in enumerate(merges_list)]
+        merges : list[tuple[bytes, bytes]] = load_merges_from_pickle(merges_filepath)
     
 
         return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
@@ -169,8 +163,8 @@ class Tokenizer:
             splited_text = split_on_special_tokens(text=text, special_tokens=self.special_tokens)
         else:
             splited_text = [text]
-        
-        for text in splited_text:
+        pbar = tqdm(splited_text, desc="Encoding text...")
+        for text in pbar:
             # print(f"text: {text}")
             # special_tokens已经在self.token2id中，所以直接append
             if self.special_tokens and text in self.special_tokens:
@@ -182,6 +176,7 @@ class Tokenizer:
                     token_subwords = [token_bytes[i:i+1] for i in range(len(token_bytes))]
                     token_byte_ids = self._get_token_byte_ids(token_subwords)
                     tokenized_text.extend(token_byte_ids)
+            pbar.update(1)
         return tokenized_text
     
     
@@ -190,7 +185,7 @@ class Tokenizer:
             encode_list = self.encode(text)
             for id in encode_list:
                 yield id
-        
+    
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         '''
         Encode an iterable of input texts into a sequence of token IDsGiven an iterable of
@@ -234,34 +229,60 @@ class Tokenizer:
         
         return ''.join(result_component)
 
+    
+    
+    def _encode_chunk(self, sub_texts: List[str]) -> List[int]:
+        """
+        辅助函数：对 splited_text 的一个子列表进行 encode，返回其 token ID 列表
+        """
+        tokenized_chunk: List[int] = []
+        pbar = tqdm(sub_texts, desc=f"sub processs Encoding chunk...")
+        for sub_text in pbar:
+            if self.special_tokens and sub_text in self.special_tokens:
+                tokenized_chunk.append(self.token2id[sub_text.encode("utf-8")])
+            else:
+                for token in regex.finditer(self.PAT, sub_text):
+                    token_str = token.group(0)
+                    token_bytes = token_str.encode("utf-8")
+                    token_subwords = [token_bytes[i:i+1] for i in range(len(token_bytes))]
+                    token_byte_ids = self._get_token_byte_ids(token_subwords)
+                    tokenized_chunk.extend(token_byte_ids)
+            pbar.update(1)
+        return tokenized_chunk
+    
+    def encode_parallel(self, text: str, num_processes: int = 2) -> List[int]:
+        """
+        并行版 encode：将 splited_text 分成 num_processes 个子块，用 multiprocessing.Pool 并发处理，
+        最后将所有子块的结果拼接起来（按顺序）。
+        """
+        if self.special_tokens is not None:
+            splited_text = split_on_special_tokens(text=text, special_tokens=self.special_tokens)
+        else:
+            splited_text = [text]
+
+        # 分块
+        chunk_size = (len(splited_text) + num_processes - 1) // num_processes  # 向上取整
+        chunks: List[List[str]] = [
+            splited_text[i * chunk_size : (i + 1) * chunk_size]
+            for i in range(num_processes)
+            if i * chunk_size < len(splited_text)
+        ]
+
+        # 多进程池处理
+        with Pool(processes=num_processes) as pool:
+            # 注意：Pool 里的函数必须是可 picklable，全局可见
+            results = pool.map(self._encode_chunk, chunks)
+        # 拼接各子结果（按 chunks 原始顺序）
+        tokenized_text: List[int] = []
+        for res in results:
+            tokenized_text.extend(res)
+
+        return tokenized_text
 
 
 # ================================
 import os
-from functools import lru_cache
-
-
-
-def bytes_to_safe_str(b: bytes) -> str:
-    try:
-        return b.decode('utf-8')
-    except UnicodeDecodeError:
-        # 不能utf-8 decode 的，用 repr 或 base64 表示
-        return repr(b)
-def save_merges_to_json(d: List[tuple[bytes, bytes]], filepath: str) -> None:
-    # 将 bytes 转为可写的 str
-    d_str = [ (bytes_to_safe_str(pairs[0]), bytes_to_safe_str(pairs[1])) for pairs in d]
-    # 把字典写入 JSON 文件
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(d_str, f, indent=2, ensure_ascii=False)
-def save_bytes_dict_to_json(d: Dict[int, bytes], filepath: str) -> None:
-    # 将 bytes 转为可写的 str
-    d_str = {k: bytes_to_safe_str(v) for k, v in d.items()}
-    # 把字典写入 JSON 文件
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(d_str, f, indent=2, ensure_ascii=False)
-        
-        
+from functools import lru_cache      
 def get_tokenizer_from_vocab_merges_path(
     vocab_path: str | os.PathLike,
     merges_path: str | os.PathLike,
