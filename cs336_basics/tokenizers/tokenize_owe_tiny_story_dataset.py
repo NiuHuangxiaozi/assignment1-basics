@@ -9,7 +9,7 @@ import os
 import numpy as np
 from cs336_basics.tokenizers.tokenizer import Tokenizer
 from cs336_basics.bpe.pretokenization_example import find_chunk_boundaries
-
+from tqdm import tqdm
 def save_token_ids(token_ids, filename, dtype=np.uint16):
     """
     保存 token_ids（可任意可迭代）为 numpy 数组并写入文件。
@@ -132,34 +132,52 @@ def main():
     print(f"begin to tokenize {args.text_data_path}...")
     ids_list = []
     check_ids_list = []
+    
+    # =======================
     with open(args.text_data_path, "rb") as f:
-        
-        boundaries = find_chunk_boundaries(f, args.num_chunks, args.special_tokens[0].encode("utf-8"))
-        
+        boundaries = find_chunk_boundaries(
+            f, args.num_chunks, args.special_tokens[0].encode("utf-8")
+        )
+
         chunk_generator = _chunk_generator(f, boundaries)
-        
+        ids_list, check_ids_list = [], []
+
+        # 外层进度条（整体进度）
+        pbar = tqdm(total=len(boundaries) - 1, desc="Tokenizing chunks", position=0, leave=True)
+
         chunk_index = 0
-        while chunk_index < len(boundaries) - 1 :
-            text_chunk= next(chunk_generator)
-            chunk_ids : List[int] = tokenizer.encode_parallel(text_chunk, os.cpu_count())
+        while chunk_index < len(boundaries) - 1:
+            text_chunk = next(chunk_generator)
+
+            # 内层 encode_parallel 使用自己的 tqdm，不干扰外层
+            chunk_ids: List[int] = tokenizer.encode_parallel(
+                text_chunk, os.cpu_count()  # 保证显示在下方
+            )
+
             ids_list.extend(chunk_ids)
             check_ids_list.extend(chunk_ids)
+
             if args.is_chunk_save and len(ids_list) >= args.save_ids_interval:
-                # 达到一个 chunk，保存
                 arr = np.array(ids_list, dtype=np.uint16)
                 save_uint16_chunk(args.id_save_path, arr)
-                # 重置
                 ids_list.clear()
+
             chunk_index += 1
+            pbar.update(1)  # 更新外层进度条
+
+        pbar.close()
+
         if ids_list:
             arr = np.array(ids_list, dtype=np.uint16)
             save_uint16_chunk(args.id_save_path, arr)
-    print(f"tokenize {args.text_data_path} end, save to {args.id_save_path} ")
 
+    print(f"tokenize {args.text_data_path} end, save to {args.id_save_path}")
     
+    
+    # =======================
     loaded_data_ids = load_token_ids(args.id_save_path)
-    print(f"loaded data ids is {loaded_data_ids}")
-    print(f"check_ids_list ids is {check_ids_list}")
+    # print(f"loaded data ids is {loaded_data_ids}")
+    # print(f"check_ids_list ids is {check_ids_list}")
     
     
     print(f"loaded data ids length  is {len(loaded_data_ids)}")

@@ -236,8 +236,8 @@ class Tokenizer:
         辅助函数：对 splited_text 的一个子列表进行 encode，返回其 token ID 列表
         """
         tokenized_chunk: List[int] = []
-        pbar = tqdm(sub_texts, desc=f"sub processs Encoding chunk...")
-        for sub_text in pbar:
+        # pbar = tqdm(sub_texts, desc=f"sub processs Encoding chunk...")
+        for sub_text in sub_texts:
             if self.special_tokens and sub_text in self.special_tokens:
                 tokenized_chunk.append(self.token2id[sub_text.encode("utf-8")])
             else:
@@ -247,7 +247,7 @@ class Tokenizer:
                     token_subwords = [token_bytes[i:i+1] for i in range(len(token_bytes))]
                     token_byte_ids = self._get_token_byte_ids(token_subwords)
                     tokenized_chunk.extend(token_byte_ids)
-            pbar.update(1)
+            # pbar.update(1)
         return tokenized_chunk
     
     def encode_parallel(self, text: str, num_processes: int = 2) -> List[int]:
