@@ -52,7 +52,7 @@ def run_embedding(
 
     embedding = NIUEmbedding(vocab_size, d_model)
     state_dict = dict()
-    state_dict["dictionary"] = weights
+    state_dict["weight"] = weights
     embedding.load_state_dict(state_dict)
     return embedding(token_ids)
 
@@ -326,6 +326,8 @@ def run_transformer_block(
     tb.load_state_dict(state_dict)
     return tb(in_features)
 
+
+from cs336_basics.modules.TransformerLM import NiuTransformerLM
 def run_transformer_lm(
     vocab_size: int,
     context_length: int,
@@ -405,7 +407,10 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    transformer_lm = NiuTransformerLM(vocab_size, context_length, d_model, num_layers, num_heads, d_ff, rope_theta)
+
+    transformer_lm.load_state_dict(weights, strict=True)
+    return transformer_lm(in_indices)
 
 
 from cs336_basics.modules.rmsnorn import NIURMSNorm
