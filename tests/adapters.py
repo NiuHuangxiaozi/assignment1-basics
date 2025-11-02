@@ -8,6 +8,7 @@ import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
+from torch.optim.optimizer import Kwargs
 
 
 
@@ -95,6 +96,8 @@ def run_swiglu(
     return swiglu(in_features)
 
 
+
+from cs336_basics.modules.scaled_dot_product_attention import NIUscaled_dot_product_attention
 def run_scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys d_k"],
@@ -113,9 +116,11 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    
+    niudotproduct = NIUscaled_dot_product_attention()
+    return niudotproduct(Q, K, V, mask)
 
-
+from cs336_basics.modules.causal_multi_head_self_attention import NIUcausal_multi_head_self_attention
 def run_multihead_self_attention(
     d_model: int,
     num_heads: int,
@@ -147,9 +152,17 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    niucausal_multi_head_self_attention = NIUcausal_multi_head_self_attention(d_model,
+                                                                              num_heads,
+                                                                              q_proj_weight,
+                                                                              k_proj_weight,
+                                                                              v_proj_weight,
+                                                                              o_proj_weight,
+                                                                              use_position_embedding=False)
+    return niucausal_multi_head_self_attention(in_features, None)
 
 
+from cs336_basics.modules.causal_multi_head_self_attention import NIUcausal_multi_head_self_attention
 def run_multihead_self_attention_with_rope(
     d_model: int,
     num_heads: int,
@@ -187,9 +200,19 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    niucausal_multi_head_self_attention = NIUcausal_multi_head_self_attention(d_model,
+                                                                              num_heads,
+                                                                              q_proj_weight,
+                                                                              k_proj_weight,
+                                                                              v_proj_weight,
+                                                                              o_proj_weight,
+                                                                              use_position_embedding=True,
+                                                                              theta=theta,
+                                                                              max_seq_len=max_seq_len)
+    return niucausal_multi_head_self_attention(in_features, token_positions)
 
 
+from cs336_basics.modules.rope import NIURope
 def run_rope(
     d_k: int,
     theta: float,
@@ -209,9 +232,12 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    niurope  = NIURope(theta, d_k, max_seq_len)
+    return niurope(in_query_or_key, token_positions)
 
 
+
+from cs336_basics.modules.transformer_block import NiuTransformerblock
 def run_transformer_block(
     d_model: int,
     num_heads: int,
@@ -282,8 +308,18 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
-
+    state_dict = dict()
+    state_dict["attn.q_proj.weight"] = weights["attn.q_proj.weight"]
+    state_dict["attn.k_proj.weight"] = weights["attn.k_proj.weight"]
+    state_dict["attn.v_proj.weight"] = weights["attn.v_proj.weight"]
+    state_dict["attn.output_proj.weight"] = weights["attn.output_proj.weight"]
+    state_dict["ln1.weight"] = weights["ln1.weight"]
+    state_dict["ffn.w1.weight"] = weights["ffn.w1.weight"]
+    state_dict["ffn.w2.weight"] = weights["ffn.w2.weight"]
+    state_dict["ffn.w3.weight"] = weights["ffn.w3.weight"]
+    state_dict["ln2.weight"] = weights["ln2.weight"]    
+    tb = NiuTransformerblock(d_model, num_heads, d_ff, max_seq_len, theta, **state_dict)
+    return tb(in_features)
 
 def run_transformer_lm(
     vocab_size: int,
@@ -431,7 +467,7 @@ def run_get_batch(
     """
     raise NotImplementedError
 
-
+from cs336_basics.modules.softmax import NIUsoftmax
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     """
     Given a tensor of inputs, return the output of softmaxing the given `dim`
@@ -445,7 +481,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    niusoftmax = NIUsoftmax()
+    return niusoftmax(in_features, dim)
 
 
 def run_cross_entropy(
