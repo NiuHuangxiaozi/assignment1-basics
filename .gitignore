@@ -165,3 +165,7 @@ cython_debug/
 *.gz
 
 /data/
+*pth
+*pt
+
+./train/debug/

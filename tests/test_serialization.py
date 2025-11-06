@@ -1,3 +1,4 @@
+from math import fabs
 import numpy
 import torch
 import torch.nn as nn
@@ -37,6 +38,7 @@ def are_optimizers_equal(optimizer1_state_dict, optimizer2_state_dict, atol=1e-8
 
     for key in state1:
         # Assuming state contents are also dictionaries
+        # print("qweasdfasdas",state2[key])
         if set(state1[key].keys()) != set(state2[key].keys()):
             return False
 

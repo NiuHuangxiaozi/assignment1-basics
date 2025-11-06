@@ -21,9 +21,11 @@ class NIUscaled_dot_product_attention(nn.Module):
                 mask: Bool[Tensor, " ... queries keys"] | None = None)\
                 -> Float[Tensor, " ... queries d_v"]:
 
+                mask = mask.to(Q.device)
+                
                 d_k = Q.shape[-1]
                 dot_product = einsum(Q, K, '... queries d_k, ... keys d_k -> ... queries keys')
-                attention_score_matrix = dot_product/torch.sqrt(torch.tensor([d_k]))
+                attention_score_matrix = dot_product/torch.sqrt(torch.tensor(d_k, device=dot_product.device))
                 # if mask mask some scores
                 if mask is not None:
                     masked_attention_score_matrix = attention_score_matrix.masked_fill_(~mask.bool(), -float('inf'))

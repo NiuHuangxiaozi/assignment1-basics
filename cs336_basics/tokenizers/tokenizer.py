@@ -279,6 +279,10 @@ class Tokenizer:
 
         return tokenized_text
 
+    
+    def get_end_token_id(self) -> int:
+        return self.token2id["<|endoftext|>".encode("utf-8")]
+
 
 # ================================
 import os

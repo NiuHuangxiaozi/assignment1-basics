@@ -45,7 +45,7 @@ class NIURope(nn.Module):
             token_positions = rearrange(token_positions, '(1 i) -> 1 i')
         else:
             token_positions = torch.arange(x.shape[-2])
-
+            
         selected_sin_base_matrix = self.sin_base_matrix[token_positions] 
         selected_cos_base_matrix = self.cos_base_matrix[token_positions]
         # selected_sin_base_matrix  shape is [batch, seq_len, d_k/2]

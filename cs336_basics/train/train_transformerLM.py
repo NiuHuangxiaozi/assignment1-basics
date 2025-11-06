@@ -2,6 +2,7 @@
 
 import argparse
 from re import L
+import wandb
 import torch
 import time
 import os
@@ -16,7 +17,10 @@ from cs336_basics.loss.loss import NIUCrossEntropyLoss
 from cs336_basics.tools.tools import cosine_scheduling
 from cs336_basics.tools.tools import save_checkpoint
 from cs336_basics.tools.tools import gradient_clipping
+import logging
 
+logging.basicConfig(filename='transformerLM_tinystory_GPT4_train_dataset.log', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class TrainDataGenerator(Iterator[Tuple[torch.Tensor, torch.Tensor]]):
     def __init__(self, train_ids, batch_size, context_length, device):
@@ -25,11 +29,12 @@ class TrainDataGenerator(Iterator[Tuple[torch.Tensor, torch.Tensor]]):
         self.context_length = context_length
         self.device = device
         self._batches_yielded = 0      # 内部计数器
-        self.max_iter_num = min(len(train_ids) - context_length, 100) # 最大迭代次数
-        print(f"max_iter_num is {min(self.max_iter_num,10)}")
+        self.max_iter_num = min(len(train_ids) - context_length, 7000) # 最大迭代次数
+        logger.info(f"max_iter_num is {min(self.max_iter_num, 7000)}")
     def __iter__(self):
       return self
-    
+    def __len__(self):
+      return self.max_iter_num
     def __next__(self):
       self._batches_yielded += 1
       if self._batches_yielded > self.max_iter_num:
@@ -55,42 +60,90 @@ class Scheduler:
 
 # 训练模型
 def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion, scheduler, training_cfg):
-    tqdm.write(f"Training started with {training_cfg.epochs} epochs")
-    
-    epoch_avg_loss = 0
-    iter_avg_loss = 0
-    
+    logger.info(f"Training started with {training_cfg.epochs} epochs")
+
+    start_time = time.time()
+    epoch_loss = 0
+    iter_loss_list = []
+    iter_number = 0
     model.to(training_cfg.device)
     model.train()
     for epoch in tqdm(range(training_cfg.epochs)):
-        for i, data_batch in enumerate(train_data_generator):
+        for i, data_batch in tqdm(enumerate(train_data_generator), total = len(train_data_generator), leave=False):
+            iter_number += 1
             x, y = data_batch
             optimizer.zero_grad()
             x = x.to(training_cfg.device)
             y = y.to(training_cfg.device)
             logits = model(x)
-            
+
             loss = criterion(logits, y)
             loss.backward()
             gradient_clipping(model.parameters(), training_cfg.max_norm)
             optimizer.step()
-            iter_avg_loss += loss.item()
-            epoch_avg_loss += loss.item()
-            if i % training_cfg.iter_print_freq == 0:
-                tqdm.write(f"Epoch {epoch+1}, Iter {i+1}, Average Loss {iter_avg_loss/training_cfg.iter_print_freq:.4f}")
-                iter_avg_loss = 0
+
+            loss_val = loss.item()
+            iter_loss_list.append(loss_val)
+            wandb.log(
+                {
+                    "each_iter_loss": iter_loss_list[-1],
+                    "avg_iter_loss": np.mean(iter_loss_list),
+                    "iter_number": iter_number,
+                },
+                step=iter_number
+                )
+            epoch_loss += loss_val
+
+            # 每 iter 记录
+            if iter_number % training_cfg.iter_print_freq == 0:
+                avg_iter_loss = np.mean(iter_loss_list)
+                logger.info(f"Epoch {epoch+1}, Iter {i+1}, Average Iter Loss {avg_iter_loss:.4f}")
+                # 保存 checkpoint
+                os.makedirs(os.path.join(training_cfg.exp_name, training_cfg.save_path, f"iter_{iter_number}"), exist_ok=True)
+                save_checkpoint(model, optimizer, iter_number, os.path.join(training_cfg.exp_name, training_cfg.save_path, f"iter_{iter_number}", f"model_iter_{iter_number}.pth"))
+                # 同时记录 avg_iter_loss
+                wandb.log({
+                    "avg_iter_loss": avg_iter_loss,
+                }, step=iter_number)
+                iter_loss_list = []  # 可选：清空一下统计列表
+
         if epoch % training_cfg.epoch_print_freq == 0:
-            tqdm.write(f"Epoch {epoch+1}, Average Loss {epoch_avg_loss/training_cfg.epoch_print_freq:.4f}")
-            epoch_avg_loss = 0
-            os.makedirs(os.path.join(training_cfg.exp_name, training_cfg.save_path, f"epoch_{epoch+1}"), exist_ok=True)
-            save_checkpoint(model, optimizer, epoch+1, os.path.join(training_cfg.exp_name, training_cfg.save_path, f"epoch_{epoch+1}", f"model_epoch_{epoch+1}.pth"))
+            avg_epoch_loss = epoch_loss / training_cfg.epoch_print_freq
+            logger.info(f"Epoch {epoch+1}, Average Loss {avg_epoch_loss:.4f}")
+            # 记录 epoch 损失
+            wandb.log({
+                "epoch": epoch+1,
+                "epoch_loss": avg_epoch_loss,
+            }, step=iter_number)
+            epoch_loss = 0
+
         scheduler.step(t=epoch)
-    tqdm.write(f"Training finished")
+
+    logger.info(f"Training finished, total iterations {iter_number}, total time {time.time() - start_time:.2f} seconds")
+    wandb.finish()
     return model
+
 
 def train_transformerLM(args):
     model_cfg = load_model_config(args.model_cfg_path)
     training_cfg = load_training_config(args.exp_cfg_path)
+        # 初始化 W&B
+    wandb.init(project=training_cfg.exp_name, config={
+        "learning_rate": training_cfg.learning_rate,
+        "batch_size": training_cfg.batch_size,
+        "epochs": training_cfg.epochs,
+        "context_length": model_cfg.context_length,
+        "max_norm": training_cfg.max_norm,
+        "warmup_steps": training_cfg.warmup_steps,
+        "cosine_cycle_steps": training_cfg.cosine_cycle_steps,
+        "learning_rate_min": training_cfg.learning_rate_min,
+        "optimizer": training_cfg.optimizer.type,
+        "beta1": training_cfg.optimizer.beta1,
+        "beta2": training_cfg.optimizer.beta2,
+        "eps": training_cfg.optimizer.eps,
+        "weight_decay": training_cfg.optimizer.weight_decay,
+    })
+
     # 创建保存路径
     os.makedirs(os.path.join(training_cfg.exp_name, training_cfg.save_path), exist_ok=True)
     
