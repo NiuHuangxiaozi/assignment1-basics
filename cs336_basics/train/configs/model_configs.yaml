@@ -1,0 +1,8 @@
+# 模型架构相关配置
+vocab_size: 10000                  # 词汇表大小
+context_length: 256                # 上下文长度（最大输入片段长度）
+d_model: 512                       # 模型隐藏维度
+d_ff: 1344                         # 前馈网络维度
+rope_theta: 10000                  # RoPE θ 参数
+num_layers: 4                      # Transformer 层数
+num_heads: 16                      # 注意力头数
