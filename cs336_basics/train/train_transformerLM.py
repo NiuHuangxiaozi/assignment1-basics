@@ -17,6 +17,7 @@ from cs336_basics.loss.loss import NIUCrossEntropyLoss
 from cs336_basics.tools.tools import cosine_scheduling
 from cs336_basics.tools.tools import save_checkpoint
 from cs336_basics.tools.tools import gradient_clipping
+from cs336_basics.tools.tools import load_checkpoint
 import logging
 
 logging.basicConfig(filename='transformerLM_tinystory_GPT4_train_dataset.log', level=logging.INFO)
@@ -35,6 +36,8 @@ class TrainDataGenerator(Iterator[Tuple[torch.Tensor, torch.Tensor]]):
       return self
     def __len__(self):
       return self.max_iter_num
+    def reset(self, iter_number):
+        self._batches_yielded = iter_number % len(self)
     def __next__(self):
       self._batches_yielded += 1
       if self._batches_yielded > self.max_iter_num:
@@ -59,18 +62,26 @@ class Scheduler:
             param_group['lr'] = lr
 
 # 训练模型
-def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion, scheduler, training_cfg):
+def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion, scheduler, training_cfg, iter_number):
     logger.info(f"Training started with {training_cfg.epochs} epochs")
 
     start_time = time.time()
     epoch_loss = 0
     iter_loss_list = []
-    iter_number = 0
+    
+    train_data_generator.reset(iter_number)
     model.to(training_cfg.device)
     model.train()
-    for epoch in tqdm(range(training_cfg.epochs)):
-        for i, data_batch in tqdm(enumerate(train_data_generator), total = len(train_data_generator), leave=False):
-            iter_number += 1
+    
+    
+    total_iters_pbar = tqdm(total = training_cfg.epochs * len(train_data_generator), initial=iter_number, desc="Training Small Language Model...")
+    
+    cur_epoch = iter_number // len(train_data_generator)
+    epoch_pbar = tqdm(total=training_cfg.epochs, initial=cur_epoch, desc="Epochs...")
+    
+    for epoch in epoch_pbar:
+        for _, data_batch in enumerate(train_data_generator):
+            
             x, y = data_batch
             optimizer.zero_grad()
             x = x.to(training_cfg.device)
@@ -97,7 +108,7 @@ def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion,
             # 每 iter 记录
             if iter_number % training_cfg.iter_print_freq == 0:
                 avg_iter_loss = np.mean(iter_loss_list)
-                logger.info(f"Epoch {epoch+1}, Iter {i+1}, Average Iter Loss {avg_iter_loss:.4f}")
+                logger.info(f"Epoch {epoch+1}, Iter {iter_number}, Average Iter Loss {avg_iter_loss:.4f}")
                 # 保存 checkpoint
                 os.makedirs(os.path.join(training_cfg.exp_name, training_cfg.save_path, f"iter_{iter_number}"), exist_ok=True)
                 save_checkpoint(model, optimizer, iter_number, os.path.join(training_cfg.exp_name, training_cfg.save_path, f"iter_{iter_number}", f"model_iter_{iter_number}.pth"))
@@ -107,6 +118,12 @@ def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion,
                 }, step=iter_number)
                 iter_loss_list = []  # 可选：清空一下统计列表
 
+            
+            # 训练完了一个iter
+            total_iters_pbar.update(1)
+            iter_number += 1
+            
+            
         if epoch % training_cfg.epoch_print_freq == 0:
             avg_epoch_loss = epoch_loss / training_cfg.epoch_print_freq
             logger.info(f"Epoch {epoch+1}, Average Loss {avg_epoch_loss:.4f}")
@@ -116,7 +133,9 @@ def train(model, train_data_generator: TrainDataGenerator, optimizer, criterion,
                 "epoch_loss": avg_epoch_loss,
             }, step=iter_number)
             epoch_loss = 0
-
+            
+        epoch_pbar.update(1)
+        
         scheduler.step(t=epoch)
 
     logger.info(f"Training finished, total iterations {iter_number}, total time {time.time() - start_time:.2f} seconds")
@@ -180,13 +199,23 @@ def train_transformerLM(args):
                           cosine_cycle_steps=training_cfg.cosine_cycle_steps)
     
 
+    
+    # 上面全部是初始化参数，这里判断时都需要从checkpoint加载
+    if training_cfg.resume_from_checkpoint:
+        iter_number = load_checkpoint(training_cfg.checkpoint_path, model, optimizer)
+        logger.info(f"Resuming training from checkpoint at iteration {iter_number}")
+    else:
+        iter_number = 0
+        logger.info("Starting training from scratch")
+    
     # 定义训练器
     trained_model = train(model,
                           train_data_generator,
                           optimizer,
                           criterion,
                           scheduler,
-                          training_cfg)
+                          training_cfg,
+                          iter_number)
     
     return trained_model
 

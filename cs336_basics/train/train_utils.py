@@ -44,6 +44,8 @@ class TrainingConfig:
     cosine_cycle_steps: int
     learning_rate_min: float
     max_norm: float
+    resume_from_checkpoint: bool
+    checkpoint_path: str
 
     def validate(self):
         assert 0 < self.learning_rate < 1, "learning_rate seems invalid"

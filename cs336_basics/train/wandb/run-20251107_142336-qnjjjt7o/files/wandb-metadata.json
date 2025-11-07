@@ -1,0 +1,39 @@
+{
+  "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python": "CPython 3.12.7",
+  "startedAt": "2025-11-07T06:23:36.958103Z",
+  "program": "/home/niu/code/cs336/assignment1-basics/cs336_basics/train/train_transformerLM.py",
+  "codePath": "cs336_basics/train/train_transformerLM.py",
+  "codePathLocal": "train_transformerLM.py",
+  "git": {
+    "remote": "git@github.com:NiuHuangxiaozi/assignment1-basics.git",
+    "commit": "d555b2bee9b7fd5fb47c989b35bda2c0b5039f7a"
+  },
+  "email": "1280773543@qq.com",
+  "root": "/home/niu/code/cs336/assignment1-basics/cs336_basics/train",
+  "host": "DESKTOP-SF42OLM",
+  "executable": "/home/niu/code/cs336/assignment1-basics/.venv/bin/python3",
+  "cpu_count": 10,
+  "cpu_count_logical": 20,
+  "gpu": "NVIDIA GeForce RTX 4060 Ti",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "1081101176832",
+      "used": "523557740544"
+    }
+  },
+  "memory": {
+    "total": "8175075328"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4060 Ti",
+      "memoryTotal": "17175674880",
+      "architecture": "Ada",
+      "uuid": "GPU-975ac2df-a656-7f31-f14c-25e0a5ef8651"
+    }
+  ],
+  "cudaVersion": "12.8",
+  "writerId": "b91k3elksba59nvfeh22optfbib7dilu"
+}

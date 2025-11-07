@@ -111,7 +111,8 @@ def one_sample_model_generation(
             last_logits: Float[torch.Tensor, "vocab_size"] = rearrange(last_logits, "1 vocab_size -> vocab_size")
             
             tokens: Int[torch.Tensor, "one_token"] = sample_next_token(last_logits , temperature, p)
-            
+            if tokens.item() == tokenizer.get_end_token_id():
+                break
             input_ids: Int[torch.Tensor, "seq_len"] = torch.cat([input_ids, tokens], dim=0)
             
     return tokenizer.decode(input_ids.tolist())
@@ -134,7 +135,7 @@ def test():
                              model_cfg.rope_theta,
                              device=device)
     
-    model_state_dict = torch.load("/home/niu/code/cs336/assignment1-basics/cs336_basics/train/LM/models_checkpoints/iter_4150/model_iter_4150.pth")["model"]
+    model_state_dict = torch.load("/home/niu/code/cs336/assignment1-basics/cs336_basics/train/LM/models_checkpoints/iter_17840/model_iter_17840.pth")["model"]
     model.load_state_dict(model_state_dict)
     
     # 定义tokenizer
@@ -150,7 +151,7 @@ def test():
     generated_text = one_sample_model_generation(input_ids=input_ids,
                                                  model=model,
                                                  tokenizer=tokenizer,
-                                                 max_length=100,
+                                                 max_length=256,
                                                  temperature=1.0,
                                                  p=1,
                                                  device=device
